@@ -8,12 +8,6 @@ output:
 
 ---
 
-This is to certify that the work I am submitting is my own. No substantial part(s) of the work submitted here has also been submitted by me in other assessments for accredited courses of study.
-
-AI was used in the preparation of this work, specifically for code development and error fixing. I interpreted and modified to make it applicable to this data/report.
-
----
-
 # Section 1
 
 ```{r setup, message=FALSE}
