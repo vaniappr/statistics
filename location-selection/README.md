@@ -1,1 +1,1 @@
-
+We are taking the role of a promoter in York who is deciding what is the best location to place their stall so that the most people walk by it. To do this we are going to use daily footfall data. This data comes
