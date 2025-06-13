@@ -1,0 +1,264 @@
+---
+title: 'Business Statistics Mid-Term Assessment IB94X0 2024-2025 #1'
+author: '5673642'
+output:
+  html_document:
+    toc: yes
+    toc_depth: 3
+
+---
+
+This is to certify that the work I am submitting is my own. No substantial part(s) of the work submitted here has also been submitted by me in other assessments for accredited courses of study.
+
+AI was used in the preparation of this work, specifically for code development and error fixing. I interpreted and modified to make it applicable to this data/report.
+
+---
+
+# Section 1
+
+```{r setup, message=FALSE}
+
+library(tidyverse)
+library(dplyr)
+library(gridExtra)
+library(kableExtra)
+options(width=100)
+
+```
+
+This report fulfills the requests of a promoter in York who is deciding on the best location for their stall, performing the specific analyses requested.
+
+1. Provide a figure showing the distribution of footfall across all days by location.
+
+2. Perform a t-test to compare the footfall on Coney Street to Stonegate. 
+
+3. Perform an additional t-test to compare the footfall on Coney Street to Stonegate only on weekends (i.e., Saturdays/Sundays).
+
+4. Advise the promoter whether they should place their stall on Coney Street or Stonegate to maximise the number of passers.
+
+---
+
+# Read Data
+```{r}
+data <- read_csv('York_Footfall_data.csv')
+str(data)
+```
+# Check Data Quality and Integrity
+```{r}
+# Check missing values
+colSums(is.na(data))
+
+data |> 
+  filter(is.na(TotalCount)) |> 
+  select(Date, LocationName)
+```
+The footfall data for Church Street has 10 missing values. However, all of these missing entries are from 2015-2016. Since our analysis later will mainly focus on the data from 2019, these missing values can be ignored. Additionally, there are 100 missing values on the Recording ID, which we will also ignore as it is not relevant to our analysis.
+
+```{r}
+# Check the distribution of continuous, numeric data
+# There are 2 numeric variables: total count and recording ID. However, recording ID will not be used in any analysis later so it will be excluded from consideration
+# Find the mean of total count in each location
+data_by_loc <- data |>  
+  group_by(LocationName)|> 
+  summarise(mean=mean(TotalCount, na.rm = TRUE))
+
+# Plotting data distribution to histogram
+data |> 
+  ggplot(aes(x = TotalCount)) + 
+  geom_histogram(binwidth = 500, na.rm = TRUE) + 
+  facet_wrap(~ LocationName, scales = "free") +
+  xlim(0, max(data$TotalCount)) +
+  geom_vline(data=data_by_loc, aes(xintercept=mean), col="green") +
+  labs(
+    title = "Distribution of Footfall in York (2015-2019)",
+    subtitle = "Distribution of Daily Footfall by Location",
+    x = "Total Footfall"
+    )
+```
+
+The distribution for 'Parliament Street' appears more symmetric, while the others show right-skewed patterns. To better understand the extreme values that lie in the right tail, we extracted the top 10 highest 'TotalCount' values for each location, along with the corresponding date and day. This helps identify specific periods or trends that may contribute to these anomalies.
+
+```{r}
+# Extract top 10 data from each location
+top_10_counts <- data |> 
+  group_by(LocationName) |> 
+  arrange(desc(TotalCount)) |> 
+  slice_max(TotalCount, n = 10) |> 
+  select(LocationName, Date, WeekDay, TotalCount)
+
+top_10_counts |> 
+  kable(caption = "Top 10 Highest Footfall Values for Each Location") |>
+  kable_styling() |> 
+  scroll_box(height = "300px")
+```
+
+The highest footfall values on Church Street, Coney Street, Parliament Street, and Parliament Street at M&S mainly occurred on weekends (Saturday and Sunday). This data makes sense as people will likely spend more time walking around on weekends. Meanwhile, Micklegate and Stonegate's highest values were mainly in December, possibly due to the winter holidays and increased tourists. However, most of these peak values occurred between 2015 and 2017 and will be excluded from further analysis to find the best location to place the stall.
+
+# Summary Table
+```{r}
+data_table <- data |> 
+  group_by(LocationName) |> 
+  summarize(
+    FirstDate = min(Date, na.rm = TRUE),
+    LastDate = max(Date, na.rm = TRUE),
+    Mean = mean(TotalCount, na.rm = TRUE),
+    Stdev = sd(TotalCount, na.rm = TRUE),
+    Highest = max(TotalCount, na.rm = TRUE),
+    Lowest = min(TotalCount, na.rm = TRUE)
+  )
+
+data_table |> 
+  kable(caption = "Data Summary") |> 
+  kable_styling()
+```
+
+# Filter Data for Further Analysis
+```{r}
+# We will only use data from the year 2019 (last full year before COVID pandemic)
+data_new <- data |> 
+  filter(Date >= as.Date("2019-01-01"))
+
+# Summary of data from 2019
+data_table_new <- data_new |> 
+  group_by(LocationName) |> 
+  summarize(
+    FirstDate = min(Date, na.rm = TRUE),
+    LastDate = max(Date, na.rm = TRUE),
+    Mean = mean(TotalCount, na.rm = TRUE),
+    Stdev = sd(TotalCount, na.rm = TRUE),
+    Highest = max(TotalCount, na.rm = TRUE),
+    Lowest = min(TotalCount, na.rm = TRUE)
+  )
+
+data_table_new |> 
+  kable(caption = "Data Summary") |> 
+  kable_styling()
+```
+
+# 1. Distribution of footfall across all days by location
+```{r}
+#Mean of total count in each locations
+data_by_loc_new <- data_new |>  
+  group_by(LocationName)|> 
+  summarise(mean=mean(TotalCount, na.rm = TRUE))
+
+#Histogram
+data_new |> 
+  ggplot() +
+  geom_histogram(aes(x = TotalCount), binwidth = 500) +
+  facet_wrap(~ LocationName, scales = "free") +
+  geom_vline(data=data_by_loc_new, mapping=aes(xintercept=mean), col="green") +
+  labs(
+    title = "Distribution of Footfall in York (2019)",
+    subtitle = "Distribution of Daily Footfall by Location",
+    x = "Total Footfall"
+    )
+```
+
+Based on the histograms, the data for each location may not be normally distributed but positively skewed (or right skewed). To reduce this skewness and make the data normally distributed, we can apply power transformations, pulling the right tail closer to the central part of the data. If the data were highly non-normal, a nonparametric analysis would be more suitable. However, we can see from the histogram that most of the distribution is not heavily skewed, and given the large sample size, we can reasonably proceed with parametric tests (t-test) that assume normality.
+
+# 2. Comparison of the footfall on Coney Street to Stonegate
+```{r}
+# Find the differences in means
+data_new |> 
+  filter(LocationName %in% c("Coney Street", "Stonegate")) |> 
+  group_by(LocationName) |> 
+  summarise(mean = mean(TotalCount)) |> 
+  summarise(difference=diff(mean))
+
+# t-test using all daily data, filter by 2 locations
+t.test(TotalCount ~ LocationName, 
+       data = data_new |> filter(LocationName %in% c("Coney Street", "Stonegate")))
+```
+The average number of people walking past Coney Street is 20,817.45, and the average in Stonegate is 19,204.09. This difference of 1,613.36 is significant, $t(699.18)=3.36$, $p-value=0.0008$.
+
+# 3. Comparison of weekend footfall on Coney Street and Stonegate (Saturdays and Sundays)
+```{r}
+# Weekend Data (Saturday and Sunday)
+data_weekend <- data_new |> 
+  filter(WeekDay %in% c("Saturday", "Sunday"),
+         LocationName %in% c("Coney Street", "Stonegate"))
+
+# Find differences in means
+data_weekend |> 
+  group_by(LocationName) |> 
+  summarise(mean = mean(TotalCount)) |> 
+  summarise(difference=diff(mean))
+
+# t-test using weekend data
+t.test(TotalCount ~ LocationName, data = data_weekend)
+```
+On weekends, Coney Street has an average total footfall of 25,863.37, while Stonegate has a higher average total footfall of 26,166.96. However, this difference is not statistically significant, $t(203.88)=0.29$, $p-value=0.7716$. Based on this data, the lack of statistical significance means we cannot be sure that Stonegate truly has more foot traffic than Coney Street on weekends (Saturday and Sunday). The difference could be due to random chance rather than an actual difference in the number of people passing by. 
+
+# 4. Location Recommendation
+Based on the t-test analysis to determine if the differences in total footfall means are significant, here are some recommendations for the promoter on stall placement:
+
+1. If the stall is open every day of the week, we suggest placing it on Coney Street. On average, Coney Street has more foot traffic (more people passing by) than Stonegate throughout the week. 
+
+2. If the stall is open only on weekends, the number of passersby at Coney Street and Stonegate will likely be similar since the mean difference is not significant. Therefore, the promoter might consider other factors before deciding where to open, such as logistics and transportation accessibility, rental costs, and other relevant aspects.
+
+3. Additionally, if the option is wider than Coney Street and Stonegate, the promoter can also consider Parliament Street to place the stall since it has the highest mean in 2019's footfall data. An additional t-test should be done to ensure that the mean differences with other places are significant (likely genuine).
+
+
+# Section 2
+
+This report aims to assist a York promoter in selecting the best location for a stall to attract the highest footfall. We analyse different street locations in York, comparing pedestrian counts across popular shopping areas to identify the optimal spot for the stall.
+
+To ensure the analysis reflects typical pedestrian patterns, we focus on footfall data from 2019, the last full year before the COVID-19 pandemic. This pre-pandemic data provides a clear view of footfall patterns unaffected by disruptions. Here is the summary of footfall data in 2019.
+```{r, echo=FALSE}
+data_table_new <- data_new |> 
+  group_by(LocationName) |> 
+  summarize(
+    FirstDate = min(Date, na.rm = TRUE),
+    LastDate = max(Date, na.rm = TRUE),
+    Mean = mean(TotalCount, na.rm = TRUE),
+    Stdev = sd(TotalCount, na.rm = TRUE),
+    Highest = max(TotalCount, na.rm = TRUE),
+    Lowest = min(TotalCount, na.rm = TRUE)
+  )
+
+data_table_new |> 
+  kable(caption = "Data Summary") |> 
+  kable_styling()
+```
+
+The histogram below shows the distribution of footfall data in 2019.
+
+```{r, echo=FALSE}
+data_by_loc_new <- data_new |>  
+  group_by(LocationName)|> 
+  summarise(mean=mean(TotalCount, na.rm = TRUE))
+
+#Histogram
+data_new |> 
+  ggplot() +
+  geom_histogram(aes(x = TotalCount), binwidth = 500) +
+  facet_wrap(~ LocationName, scales = "free") +
+  geom_vline(data=data_by_loc_new, mapping=aes(xintercept=mean), col="green") +
+  labs(
+    title = "Distribution of Footfall in York (2019)",
+    subtitle = "Distribution of Daily Footfall by Location",
+    x = "Total Footfall"
+    )
+```
+
+To determine the best location to place the stall so that most people walk by it, we conducted a t-test (assuming the data has a normal distribution since it is not heavily skewed and has a large sample size). Through this test, we aimed to see if there is a statistically significant difference in foot traffic between the two locations. Statistical significance indicates that the difference is likely genuine and not due to sampling error or random chance.
+
+Comparing Coney Street and Stonegate, here are the results of the t-test using all daily data and only weekend (Saturday and Sunday) data.
+
+Day Type | Mean Difference | Significance | Higher Mean Location
+------------- | -------- | ----------------- | ----------
+All Days | 1613.36 | Significant ($p-value=0.0008$) | Coney Street
+Weekend Only (Sat and Sun) | 303.59 | Not Significant ($p-value=0.7716$) | Stonegate
+
+Based on the result, the recommendation for stall placement depends on when the promoter plans to operate:
+
+1. For daily operations:
+   - Coney Street is recommended because it has a statistically significant daily average foot traffic increase over Stonegate.
+   - Choosing this location would optimise the number of potential customers passing by the stall.
+
+2. For weekend-only operations:
+   - Either location could be suitable, as the difference in mean foot traffic between Coney Street and Stonegate on weekends is not statistically significant and may be due to random chance.
+   - The promoter should consider other factors such as logistics and transportation accessibility, rental costs, event schedules, and other location-specific factors.
+   
+---
