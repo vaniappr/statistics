@@ -1,0 +1,232 @@
+---
+title: "A/B Testing"
+output:
+  pdf_document: default
+  word_document: default
+  html_document: default
+date: "2025-02-02"
+---
+
+```{r}
+library(dplyr)
+library(effectsize)
+library(gridExtra)
+library(ggplot2)
+library(pwr)
+```
+
+## Exploratory Data Analysis
+
+```{r}
+data <- read.csv("D:/Advanced Data Analysis/dataset.csv",
+               header = T,
+               sep = ',',
+               stringsAsFactors = FALSE)
+
+head(data, n=5)
+```
+
+```{r}
+data_new <- data |>
+  group_by(Variant, loanofficer_id) |> 
+  select(Variant, loanofficer_id, typeI_fin, typeI_init, typeII_fin, typeII_init, agree_fin, confidence_fin_total, complt_init, complt_fin, fully_complt) |>
+  summarise(
+    typeII_init = mean(typeII_init),
+    typeII_fin = mean(typeII_fin),
+    typeI_init = mean(typeI_init),
+    typeI_fin = mean(typeI_fin),
+    confidence_rate = mean(confidence_fin_total),
+    agreement_rate = mean(agree_fin),
+    complt_init = sum(complt_init),
+    complt_fin = sum(complt_fin),
+    fully_complt = sum(fully_complt),
+    .groups = "drop"
+  )
+head(data_new, n=5)
+```
+
+```{r}
+# Find the total loan processed regardless the procedures
+data_new <- data_new |> 
+  mutate(total_loans = pmax(complt_fin, complt_init))
+
+data_new |> 
+  group_by(Variant) |> 
+  summarise(
+    n_officers = n_distinct(loanofficer_id),
+    total_loan = sum(total_loans),
+    )
+```
+
+The number of officers and the total loan amount differ in the experiment.
+
+## Step 1. Data Prep
+
+As per the loan review procedure, we will analyse only those loans where officers followed the complete sequence: making an initial review and decision, consulting the computer model's predictions, and then making their final decision. Specifically, we will include cases where the officer's completion status remained consistent from initial to final review (where complt_init equals complt_fin), indicating full adherence to the model's recommendations throughout the review process.
+
+```{r}
+data_test <- data |>
+  filter(complt_init == complt_fin) |> # Ensures complete process followed
+  select(Variant, loanofficer_id, typeI_fin, typeI_init, typeII_fin, typeII_init, agree_fin, confidence_fin_total, complt_fin) |>
+  group_by(Variant, loanofficer_id) |>
+  summarise(
+    weighted_error_rate = 0.70*(mean(typeII_fin) - mean(typeII_init)) + 0.30*(mean(typeI_fin) - mean(typeI_init)), # Overall Evaluation Criterion (OEC)
+    confidence_rate = mean(confidence_fin_total), # Supporting metrics
+    agreement_rate = mean(agree_fin), # Supporting metrics
+    num_of_loan = sum(complt_fin),
+    .groups = "drop"
+  )
+
+head(data_test, n=5)
+```
+
+```{r}
+# Find the total loan processed based on the procedures
+data_test |> 
+  group_by(Variant) |> 
+  summarise(
+    n_officers = n_distinct(loanofficer_id),
+    total_loan = sum(num_of_loan),
+    )
+```
+
+In order to ensure valid experimental comparisons, we will focus on officers who strictly followed the standardised loan review procedures. Some officers in the Control group did not consult the computer predictions during their reviews. These non-compliant cases pose two key challenges:
+
+- They prevent us from accurately measuring the difference in effectiveness between the new and old models.
+
+- They reduce our effective sample size in the Control group, which weakens the statistical power of our analysis
+
+By including only cases where officers followed the complete procedure, we can maintain consistent testing conditions. This approach allows for more reliable comparisons and ensures our findings genuinely reflect the impact of the different models, rather than being influenced by variations in review processes.
+
+```{r}
+# Histograms of Key Metrics by Variant
+
+grid.arrange(
+  ggplot(data_test, aes(x = weighted_error_rate, fill = Variant)) +
+    geom_histogram(binwidth = 0.1, color = "black", alpha = 0.5) +
+    scale_fill_manual(values = c("Control" = "blue", "Treatment" = "orange")) +
+    labs(title = "Weighted Error Rate Distribution", x = "weighted_error_rate", y = "Frequency") +
+    theme_minimal(),
+  
+  ggplot(data_test, aes(x = confidence_rate, fill = Variant)) +
+    geom_histogram(binwidth = 60, color = "black", alpha = 0.5) +
+    scale_fill_manual(values = c("Control" = "blue", "Treatment" = "orange")) +
+    labs(title = "Confidence Rate Distribution", x = "confidence_rate", y = "Frequency") +
+    theme_minimal(),
+  
+  ggplot(data_test, aes(x = agreement_rate, fill = Variant)) +
+    geom_histogram(binwidth = 0.5, color = "black", alpha = 0.5) +
+    scale_fill_manual(values = c("Control" = "blue", "Treatment" = "orange")) +
+    labs(title = "Agreement Rate Distribution", x = "agreement_rate", y = "Frequency") +
+    theme_minimal(),
+  
+  ggplot(data_test, aes(x = Variant, y = num_of_loan, fill = Variant)) +
+    geom_bar(stat = "identity", alpha = 0.5) +
+    scale_fill_manual(values = c("Control" = "blue", "Treatment" = "orange")) +
+    labs(title = "Total Number of Loans by Variant", x = "Variant", y = "Total Number of Loans") +
+    theme_minimal(),
+  
+  ncol = 2 
+)
+```
+
+## Step 2. Data Analysis: Hypothesis Testing
+The Overall Evaluation Criterion (OEC) focuses primarily on avoiding mistaken approvals of bad loans. These Type II errors are particularly serious as they lead to direct financial losses, lost interest income, poorer non-performing loan ratings, and damage to company reputation. While this is our main concern, we also aim to minimise Type I errors - the rejection of good loans - since these represent missed opportunities for interest income. This balanced approach ensures we protect against losses while still pursuing profitable lending opportunities.
+
+### 2.1 Weighted OEC 
+
+*OEC*
+
+- 70% of typeII_error_rate = change in loan officers' Type II errors or false negatives -- mistakenly approving bad loans before and after seeing computer prediction (minimising)
+
+- 30% of typeI_error_rate = change in loan officers' Type I errors or false positives -- mistakenly rejecting good loans before and after seeing computer prediction (minimising)
+
+```{r}
+# OEC: Error Rate
+oec_ttest <- t.test(weighted_error_rate ~ Variant, 
+      data = data_test,
+      var.equal = FALSE)
+
+print(oec_ttest)
+```
+
+The Treatment group showed significantly better performance than the Control group (p-value < 0.05). The Treatment group's lower mean error rate indicates superior performance in both key areas: they made fewer mistakes in approving bad loans and rejecting good loans.
+
+### 2.2 Secondary Analysis - Confidence and Agreement 
+
+*Supporting Metrics*
+
+- confidence_rate = the average of confidence rating after seeing computer prediction (maximising)
+
+- agree_rate = the average of Loan Officer's agree with computer predictions after seeing computer predictions (measure the agreement between human and models) (maximising)
+
+```{r}
+# Supporting metrics
+conf_ttest <- t.test(confidence_rate ~ Variant,
+       data = data_test,
+       var.equal = FALSE)
+
+agree_ttest <- t.test(agreement_rate ~ Variant,
+       data = data_test,
+       var.equal = FALSE)
+
+print(conf_ttest)
+print(agree_ttest)
+```
+
+Treatment variant showed significantly higher levels of both confidence and agreement compared to those in the Control variant (p-value < 0.05). The higher mean scores in the Treatment group for both measures demonstrate that officers were more confident in their decisions and more likely to agree with the model's recommendations when using the Treatment variant.
+
+## Step 3. Data Analysis
+
+### Compute Difference in Mean OEC (Actual Value) between Variants
+
+```{r}
+# Compute mean OEC for each Variant
+mean_oec <- data_test |> 
+ group_by(Variant) |> 
+ summarise(
+   mean_error = mean(weighted_error_rate),
+ )
+
+print(mean_oec)
+```
+
+### Compute Difference in Mean OEC (Percentage) between Variants
+
+```{r}
+diff_error_rate <- mean_oec |> 
+  summarise(
+    Diff_Treatment_Control = mean_error[Variant == "Treatment"] - mean_error[Variant == "Control"],
+    Perc_Diff_Treatment_Control = (Diff_Treatment_Control / mean_error[Variant == "Control"]) * 100
+  )
+
+# View results
+print(diff_error_rate)
+```
+
+## Step 4. Effect Size Analysis using Cohen's d
+
+Effect size measures how large or meaningful the difference is between groups (Control and Treatment).
+
+```{r}
+# Effect size: Control vs Treatment for OEC (typeII_error_rate)
+Control <- data_test$weighted_error_rate[data_test$Variant == "Control"]
+Treatment <- data_test$weighted_error_rate[data_test$Variant == "Treatment"]
+cohens_d(Treatment, Control)
+```
+
+The Effect (-1.27) shows Treatment is having a very large beneficial effect (reduces errors). This result is statistically significant because the confidence interval [-2.04, -0.48] does not cross zero:
+
+- could be an extremely large effect (-2.04) where Treatment substantially reduces the weighted loan errors
+
+- could be a medium-large effect (-0.48) where Treatment moderately reduces the weighted loan errors
+
+## Step 5. Compute the Power Level
+
+Statistical Power = probability of detecting a meaningful difference between the variants when there really is one
+
+```{r}
+pwr.t2n.test(n1=10, n2=28, d=1.27, sig.level = 0.05, power = NULL, alternative = ("two.sided")) # Power calculations for two samples with different sizes
+```
+
+Based on the power test, the power = 0.91836 means 92% chance we'll detect the effect if it exists. High power (92%) occurred because of the large effect size (d = 1.27), reasonable sample sizes despite imbalance, and clear difference between groups.
