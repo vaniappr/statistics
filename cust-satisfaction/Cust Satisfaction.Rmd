@@ -1,0 +1,257 @@
+---
+title: "Cust Satisfaction"
+output: html_document
+date: "2025-06-14"
+---
+
+```{r setup, message=FALSE}
+library(Hmisc)
+library(tidyverse)
+library(gridExtra)
+library(dplyr)
+library(kableExtra)
+library(ggplot2)
+library(car)
+options(width=100)
+```
+
+---
+
+This report will examine customer satisfaction data from a furniture retail company and the effect of staff satisfaction, delivery time, new range of product, and company's categorisation based on the socio-economic-status. This will also include the effect of delivery times upon customer satisfaction and whether the effect is the same across store's category.
+
+# Data Dictionary - Customer Satisfaction
+Each row represents one store
+
+Variable                  | Description
+------------------------- | ----------------------------------------------------------------------------------------------
+`SES_category`            | Company's categorisation of store type by local socio-economic-status (low, medium, and high)
+`customer.satisfaction`   | The average customer satisfaction score
+`staff.satisfaction`      | The average staff job satisfaction score
+`delivery.time`           | The average delivery time of large and custom items (in days)
+`new_range`               | Whether the store was carrying a new range of products  
+
+# Read Data - Customer Satisfaction
+```{r}
+data_cust <- read_csv("cust_satisfaction.csv")
+```
+```{r}
+str(data_cust)
+```
+# Check Data Quality and Integrity - Customer Satisfaction
+```{r}
+# Check missing values
+colSums(is.na(data_cust))
+```
+
+```{r}
+# Check the distribution of staff satisfaction in each SES Category
+# Find the mean of staff satisfaction
+data_by_staff <- data_cust |>  
+  group_by(SES_category)|> 
+  summarise(mean=mean(staff.satisfaction))
+
+# Plotting data distribution to histogram
+data_cust |> 
+  ggplot(aes(x = staff.satisfaction)) + 
+  geom_histogram () + 
+  facet_wrap(~ factor(SES_category, levels = c("High", "Medium", "Low")), scales = "free") +
+  geom_vline(data=data_by_staff, aes(xintercept=mean), col="green") +
+  labs(
+    title = "Distribution of Staff Satisfaction in Each SES Category",
+    x = "Avg. Staff Satisfaction"
+    )
+```
+
+```{r}
+# Check the distribution of delivery time in each SES Category
+# Find the mean of delivery time
+data_by_deliv <- data_cust |>  
+  group_by(SES_category)|> 
+  summarise(mean=mean(delivery.time))
+
+# Plotting data distribution to histogram
+data_cust |> 
+  ggplot(aes(x = delivery.time)) + 
+  geom_histogram () + 
+  facet_wrap(~ factor(SES_category, levels = c("High", "Medium", "Low")), scales = "free") +
+  geom_vline(data=data_by_deliv, aes(xintercept=mean), col="green") +
+  labs(
+    title = "Distribution of Delivery Time in Each SES Category",
+    x = "Avg. Delivery Time"
+    )
+```
+
+# Correlation
+
+```{r}
+# Correlation between customer satisfaction, staff satisfaction, and delivery time (numerical variables)
+rcorr(as.matrix(select(data_cust,customer.satisfaction, staff.satisfaction, delivery.time)))
+
+# Plot correlation between continuous variables (Staff Satisfaction and Delivery Time) to customer satisfaction using scatter plot
+grid.arrange(
+  ggplot(data_cust, aes(y=customer.satisfaction, x=staff.satisfaction)) + geom_point() + geom_smooth() + labs(title = "Customer Satisfaction by Staff Satisfaction", x="Staff Satisfaction", y="Customer Satisfaction", subtitle = "r = 0.45 (p < 0.05)"),
+  ggplot(data_cust, aes(y=customer.satisfaction, x=delivery.time)) + geom_point() + geom_smooth() + labs(title = "Customer Satisfaction by Delivery Time", x="Delivery Time (Day)", y="Customer Satisfaction", subtitle = "r = -0.26 (p < 0.05)"),
+  ncol=2
+)
+```
+
+- The correlation between staff satisfaction and customer satisfaction is significant under NHST with r = 0.45 (20.3% shared variance)
+- The correlation between delivery time and customer satisfaction is also significant under NHST with r = -0.26 (6.8% shared variance)
+
+These relatively small shared variances indicate that using them as predictors in multiple regression should not cause problems with multicollinearity. 
+
+For categorical variables, we use boxplots to visualize their relationship with customer satisfaction.
+
+```{r}
+# Plot relationship between discrete variables (SES Category and New Range) to customer satisfaction using boxplot and jitter points
+grid.arrange(
+  ggplot(data_cust, aes(x =factor(SES_category, levels = c("High", "Medium", "Low")), y = customer.satisfaction)) + geom_boxplot() + geom_jitter(width = 0.2, alpha = 0.5) +  stat_summary(fun = mean, geom = "point", color = "red", size = 3) + labs(title = "Customer Satisfaction by SES Category", x = "SES Category", y = "Customer Satisfaction"),
+  ggplot(data_cust, aes(x = new_range, y = customer.satisfaction)) + geom_boxplot() + geom_jitter(width = 0.2, alpha = 0.5) +  stat_summary(fun = mean, geom = "point", color = "red", size = 3) + labs(title = "Customer Satisfaction by New Range of Products", x = "New Range of Products", y = "Customer Satisfaction"),
+  ncol=2
+)
+```
+
+It shows that customers from the medium SES category have relatively higher customer satisfaction scores than those from the high and low SES categories. In addition, customer satisfaction is the same whether the store has a new range of products or not.
+
+# Simple Linear Regression
+```{r}
+# Linear Regression of Cust. Satisfaction on SES Category
+m.cs.by.ses <- lm(customer.satisfaction ~ SES_category, data = data_cust)
+summary(m.cs.by.ses)
+cbind(coef(m.cs.by.ses), confint(m.cs.by.ses))
+```
+
+- Customers in the medium SES category have a 1.4908-point higher customer satisfaction compared to those in the high SES category, 95% CI [1.208, 1.773], (t(297)=10.391, p<0.001). The effect is statistically significant, and the confidence interval further supports this conclusion.
+
+- Customers in the low SES category have a 0.3639-point lower customer satisfaction compared to those in the high SES category, 95% CI [-0.646, -0.081], (t(297)=−2.536, p<0.005). The effect is statistically significant, as indicated by the confidence interval that does not include zero.
+
+```{r}
+# Linear Regression of Cust. Satisfaction on Staff Satisfaction
+m.cs.by.ss <- lm(customer.satisfaction ~ staff.satisfaction, data = data_cust)
+summary(m.cs.by.ss)
+cbind(coef(m.cs.by.ss), confint(m.cs.by.ss))
+```
+
+For every extra 1 score of staff satisfaction, the customer satisfaction increases by 0.7460%. 95% CI [0.579--0.913], (t(298) = 8.797, p<0.001). The effect is statistically significant and the CI further supports this conclusion.
+
+```{r}
+# Linear Regression of Cust. Satisfaction on Delivery Time
+m.cs.by.dt <- lm(customer.satisfaction ~ delivery.time, data = data_cust)
+summary(m.cs.by.dt)
+cbind(coef(m.cs.by.dt), confint(m.cs.by.dt))
+```
+
+For every extra 1 day in delivery time, the customer satisfaction decreases by 0.0289%. 95% CI [-0.041-- -0.016], (t(298) = -4.627, p<0.001). The effect is statistically significant and the CI further supports this conclusion.
+
+```{r}
+# Linear Regression of Cust. Satisfaction on New Range
+m.cs.by.nr <- lm(customer.satisfaction ~ new_range, data = data_cust)
+summary(m.cs.by.nr)
+cbind(coef(m.cs.by.nr), confint(m.cs.by.nr))
+```
+
+The p-value > 0.001 indicates that there's no significant effect from whether the store was carrying a new range of products to the customer satisfaction. Hence, we will not include this factor into the further analyses.
+
+# Multiple Linear Regression
+
+We can use multiple regression to simultaneously estimate the effect of four factors upon a single dependent variable (CVD).
+
+```{r}
+# Multiple Linear Regression without Interaction
+m.cs.by.factors <- lm(customer.satisfaction~SES_category + staff.satisfaction + delivery.time, data=data_cust)
+summary(m.cs.by.factors)
+cbind(coef(m.cs.by.factors), confint(m.cs.by.factors))
+```
+
+Multiple regression shows that:
+
+- Low SES category shows an insignificant negative trend compared to High SES (t(295) = -1.820, p = 0.069), with customers in Low SES category having on average 0.25 points lower satisfaction than those in High SES category.
+
+- There is a significant positive effect of being in Medium SES category compared to High (t(295) = 8.186, p < 0.001), with customers in Medium SES category having on average 1.21 points higher satisfaction than those in High SES category.
+
+- There is a significant positive effect of staff satisfaction (t(295) = 4.399, p < 0.001), with every 1 unit increase in staff satisfaction predicting an average increase of 0.35 points in customer satisfaction.
+
+- There is a significant negative effect of delivery time upon customer satisfaction (t(295) = -3.528, p < 0.001), with every 1 unit increase in delivery time predicting an average decrease of 0.017 points in customer satisfaction.
+
+The combined model explains 44% of the variance in customer satisfaction (shown by the adjusted R-squared), which suggests moderate predictive power.
+
+```{r}
+# Multiple Linear Regression with Interaction in All Factors
+m.cs.by.factors.intr <- lm(customer.satisfaction~SES_category * staff.satisfaction * delivery.time, data=data_cust)
+summary(m.cs.by.factors.intr)
+cbind(coef(m.cs.by.factors.intr), confint(m.cs.by.factors.intr))
+```
+
+No interaction is significant, probably because its overfitting and indicates that there might be multicolinearity in the model. Next, we will try to simplify the model. 
+
+We might expect that some of these factors interact, especially for the SES categories and delivery time which both show significant effects. This is because customers from different SES categories might react differently to delivery delays. Therefore, in our next analysis, we will test how SES category and delivery time work together to affect customer satisfaction.
+
+```{r}
+# Multiple Linear Regression with Interaction in SES Category and Delivery Time
+m.cs.by.sesdt.ss <- lm(customer.satisfaction~SES_category * delivery.time + staff.satisfaction, data=data_cust)
+summary(m.cs.by.sesdt.ss)
+cbind(coef(m.cs.by.sesdt.ss), confint(m.cs.by.sesdt.ss))
+```
+The effect of delivery time on customer satisfaction varies across SES categories, as shown by the significant interaction terms. For High SES (reference group), there is a significant negative effect of delivery time (b = -0.036, CI [-0.054, -0.018], t(293) = -3.951, p < 0.001), indicating that longer delivery times decrease satisfaction. Low SES stores show a significantly different pattern (interaction b = 0.032, CI [0.008, 0.056], t(293) = 2.643, p < 0.01), where the negative effect of delivery time is largely offset (total effect: -0.036 + 0.032 = -0.004). Medium SES stores' interaction with delivery time is not significant (b = 0.020, CI [-0.005, 0.044], t(293) = 1.584, p > 0.05), suggesting they respond similarly to delivery delays as High SES stores.
+
+To ensure the reliability of these results, we next check for multicollinearity using VIF scores.
+
+```{r}
+vif(m.cs.by.factors)
+vif(m.cs.by.factors.intr)
+vif(m.cs.by.sesdt.ss)
+```
+
+We can see that this high multicollinearity is simply due to the structure of our regression model that includes interaction terms. When we checked the VIF scores for the main variables without interactions, all values were below the threshold (< 5), indicating no concerning multicollinearity among our primary predictors (SES category, staff satisfaction, and delivery time).
+
+# ANOVA
+
+Next, we will going to compare two models parametrically, using analysis of variance (ANOVA). 
+```{r}
+anova(m.cs.by.factors, m.cs.by.sesdt.ss)
+```
+
+Model 1 vs. Model 2: The interaction between SES category and delivery time significantly improves the model fit (F = 3.5016, p = 0.03142).
+
+# Analyses
+
+We will examine further the effect of delivery time on customer satisfaction by SES category.
+
+```{r}
+# Create prediction data frame
+pred_df <- tibble(
+  delivery.time = rep(seq(min(data_cust$delivery.time), 
+                         max(data_cust$delivery.time), 
+                         by = 1), 3),
+  SES_category = factor(rep(c("High", "Medium", "Low"), 
+                    each = length(seq(min(data_cust$delivery.time), 
+                                    max(data_cust$delivery.time), 
+                                    by = 1))),
+                    levels = c("High", "Medium", "Low")),  # specify order
+  staff.satisfaction = mean(data_cust$staff.satisfaction)
+)
+
+# Get predictions
+pred_df <- pred_df |> 
+  mutate(predicted = predict(m.cs.by.sesdt.ss, newdata = pred_df))
+
+# Create plot with ordered categories
+ggplot(pred_df) + 
+  geom_line(aes(x = delivery.time, y = predicted, color = SES_category)) +
+  labs(title = "Effect of Delivery Time on Customer Satisfaction by SES Category",
+       x = "Delivery Time",
+       y = "Predicted Customer Satisfaction",
+       color = "SES Category")
+
+```
+
+The effect of delivery time on customer satisfaction differs significantly across socioeconomic (SES) store categories. In High and Medium SES stores, longer delivery times directly and negatively impact customer satisfaction. Conversely, Low SES stores demonstrate remarkable resilience, with customer satisfaction remaining relatively stable despite delivery time variations. Additionally, we can confirm that the difference in delivery time's effect on customer satisfaction between high and low SES is significant (shown by the large difference in slope).
+
+Customers in lower SES stores may have lower initial expectations about service quality, be more price-sensitive, and be less likely to complain about delivery times if the product is affordable. The priority is often the product's cost rather than its delivery speed. Meanwhile, in higher SES stores, customers expect premium and instant service. Minor delays are seen as significant inconveniences, leading to a significant drop in customer satisfaction.
+
+# Conclusion
+
+Customer satisfaction is influenced by several factors including delivery time (and its interaction with SES category) and staff satisfaction. There is a significant difference in the effect of delivery time on customer satisfaction between high and low SES categories. In high SES stores, longer delivery times significantly reduce satisfaction, while in low SES stores, the negative effect is much smaller.
+
+
+---
