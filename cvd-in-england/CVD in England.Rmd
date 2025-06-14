@@ -1,0 +1,309 @@
+---
+title: 'Business Statistics End of Term Assessment IB94X0 2024-2025 #1'
+author: '5673642'
+output:
+  html_document:
+    toc: yes
+    toc_depth: 3
+---
+
+```{r setup, message=FALSE}
+library(Hmisc)
+library(tidyverse)
+library(gridExtra)
+library(dplyr)
+library(kableExtra)
+library(ggplot2)
+library(car)
+options(width=100)
+```
+
+---
+
+This report will examine which factors (overweight, smokers, wellbeing, and poverty) affect the prevalence of Cardio Vascular Disease (CVD) in England. Furthermore, this report will also visualises the effect of Poverty upon CVD.
+
+# Data Dictionary - CVD
+Each row represents one local authority region.
+
+Variable      | Description
+------------- | --------------------------------------------------------------------------------------------------------
+`area_name`   | Name of cities across UK
+`area_code`   | Area code across UK
+`Population`  | The total population living in each area
+`Poverty`     | The proportion of people living in the area who meet the definition living in poverty
+`CVD`         | The proportion of people living in the area who have recently experienced Cardio Vascular Disease (CVD)
+`Overweight`  | The proportion of people living in the area who are overweight
+`Smokers`     | The proportion of people living in the area who smoke
+`Wellbeing`   | The average wellbeing score of people living in the area
+
+# Read Data - CVD
+```{r}
+data_cvd <- read_csv("Cardio_Vascular_Disease.csv")
+```
+```{r}
+# Check data type
+str(data_cvd)
+```
+
+# Check Data Quality and Integrity - CVD
+```{r}
+# Add column "Region" based on area code
+data_cvd <- data_cvd |>
+  mutate(region = ifelse(substr(data_cvd$area_code, 1, 1) == "E", "England",
+             ifelse(substr(data_cvd$area_code, 1, 1) == "N", "Northern Ireland",
+             ifelse(substr(data_cvd$area_code, 1, 1) == "S", "Scotland",
+             ifelse(substr(data_cvd$area_code, 1, 1) == "W", "Wales", "Unknown"))))) |> 
+  rename(poverty = Poverty,
+         population = Population)
+
+print(data_cvd)
+```
+```{r}
+# Check data statistics
+summary(data_cvd)
+```
+```{r}
+# Population Distribution by Region
+ggplot(data_cvd) + 
+  geom_histogram(aes(population), bins = 30) +
+  facet_wrap(~ region) +
+  labs(title = "Population Distribution by Region")
+
+# Poverty Distribution by Region
+ggplot(data_cvd) + 
+  geom_histogram(aes(poverty), bins = 30) +
+  facet_wrap(~ region) +
+  labs(title = "Poverty Distribution by Region")
+
+# CVD Cases Distribution by Region
+ggplot(data_cvd) + 
+  geom_histogram(aes(CVD), bins = 30) +
+  facet_wrap(~ region) +
+  labs(title = "CVD Cases Distribution by Region")
+
+# Overweight Distribution by Region
+ggplot(data_cvd) + 
+  geom_histogram(aes(overweight), bins = 30) +
+  facet_wrap(~ region) +
+  labs(title = "Overweight Distribution by Region")
+
+# Smokers Distribution by Region
+ggplot(data_cvd) + 
+  geom_histogram(aes(smokers), bins = 30) +
+  facet_wrap(~ region) +
+  labs(title = "Smokers Distribution by Region")
+
+# Wellbeing Distribution by Region
+ggplot(data_cvd) + 
+  geom_histogram(aes(wellbeing), bins = 30) +
+  facet_wrap(~ region) +
+  labs(title = "Wellbeing Distribution by Region")
+```
+
+Data distribution in England is mostly normal except for the population data. Next we will check the population data.
+
+```{r}
+# Find max and min population with area_name and region
+population_summary <- data_cvd |> 
+  filter(population == max(population, na.rm = TRUE) | 
+           population == min(population, na.rm = TRUE)) |> 
+  mutate(Type = ifelse(population == max(population, na.rm = TRUE), 
+                       "Max Population", "Min Population")) |> 
+  select(Type, area_name, region, population)
+
+print(population_summary)
+```
+
+All make sense with the real data. However from the histogram it looks like there are several values missing. Next check the missing values.
+
+```{r}
+# Check missing values
+colSums(is.na(data_cvd))
+```
+
+```{r}
+# Find total missing value in each region
+# Group by region
+data_region <- data_cvd |> 
+  group_by(region) |> 
+  summarise(total_data = n(), 
+            missing_CVD = sum(is.na(CVD)),
+            missing_population = sum(is.na(population)),
+            missing_poverty = sum(is.na(poverty)),
+            missing_overweight = sum(is.na(overweight)),
+            missing_smokers = sum(is.na(smokers)),
+            missing_wellbeing = sum(is.na(wellbeing)))
+
+# View the results
+print(data_region)
+```
+
+Only England has complete data, while other regions are missing almost all necessary information. Hence, even if we remove all the NA values, it will not significantly impact the analysis since our focus will be on the data from England.
+
+```{r}
+# Drop all missing values and create a new dataset
+data_cvd_england <- data_cvd |> 
+  drop_na()
+
+# View the new dataset
+print(data_cvd_england)
+```
+
+```{r}
+# Recheck missing values and region
+colSums(is.na(data_cvd_england))
+
+unique_regions <- unique(data_cvd_england$region)
+print(unique_regions)
+```
+
+# Correlation
+
+```{r}
+grid.arrange(
+  ggplot(data_cvd_england, aes(y=CVD, x=overweight)) + geom_point() + geom_smooth() + labs(x="Overweight individuals (%)", y="Proportion of individuals with CVD (%)", title=expression(r==0.32)),
+  ggplot(data_cvd_england, aes(y=CVD, x=smokers)) + geom_point() + geom_smooth() + labs(x="Smokers (%)", y="Proportion of individuals with CVD (%)", title=expression(r==0.18)),
+  ggplot(data_cvd_england, aes(y=CVD, x=poverty)) + geom_point() + geom_smooth() + labs(x="Individuals in poverty (%)", y="Proportion of individuals with CVD (%)", title=expression(r==-0.25)),
+  ggplot(data_cvd_england, aes(y=CVD, x=wellbeing)) + geom_point() + geom_smooth() + labs(x="Avg, wellbeing score", y="Proportion of individuals with CVD (%)", title=expression(r==0.25)),
+  ncol=4
+)
+
+```
+
+
+```{r}
+# Correlation matrix
+rcorr(as.matrix(select(data_cvd_england, CVD, overweight, smokers, wellbeing, poverty)))
+```
+
+The correlation between overweight, smokers, wellbeing, and poverty to CVD are significant under NHST $p-value<0.05$. Overweight, smokers, and wellbeing have a small positive correlation respectively 0.32, 0.18, and 0.25. Meanwhile poverty has a negative correlation of 0.25. However, they only have small share variance, so we shouldn't have any problems with multicollinearity if we use them as predictors.
+
+At first glance, the correlation of wellbeing and CVD and poverty and CVD seems counterintuitive. Additionally, correlation alone cannot fully describe the nature of these relationships or their predictive power. Therefore, we conducted linear regression to better understand how these factors predict CVD rates.
+
+
+
+# Multiple Linear Regression
+
+We can use multiple regression to simultaneously estimate the effect of four factors upon a single dependent variable (CVD).
+
+```{r}
+# Multiple Linear Regression without Interaction
+m.cvd.by.factors <- lm(CVD~overweight + smokers + wellbeing + poverty, data=data_cvd_england)
+summary(m.cvd.by.factors)
+cbind(coef(m.cvd.by.factors), confint(m.cvd.by.factors))
+```
+
+Multiple regression shows that: 
+
+- There is a significant possitive effect of overweight upon CVD (t(298) = 5.17, p < 0.001), with every 1% increase in overweight proportion predicting an average increase of 0.11% on the proportion of people living with CVD (CI = [0.07, 0.15]).
+
+- There is a significant possitive effect of smokers upon CVD (t(298) = 3.58, p < 0.001), with every 1% increase in smokers proportion predicting an average increase of 0.12% on the proportion of people living with CVD (CI = [0.05, 0.19]).
+
+- There is a significant possitive effect of wellbeing upon CVD (t(298) = 3.67, p < 0.001), with every 1 increase in wellbeing score predicting an average increase of 1.80% on the proportion of people living with CVD (CI = [0.83, 2.77]).
+
+- There is a significant negative effect of poverty upon CVD (t(298) = -5.23, p < 0.001), with every 1% increase in poverty proportion predicting an average decrease of 0.18% on the proportion of people living with CVD (CI = [0.05, 0.19]).
+
+The combined model explains 24% of the variance in CVD prevalence (shown by the adjusted R-squared), which is higher than what is explained by single factor individually. 
+
+Next, we might expect that some of these factors interact. Therefore, in the next phase of our analysis, we will conduct multiple linear regression with interaction.
+
+```{r}
+# Multiple Linear Regression with Interaction in All Factors
+m.cvd.by.factors.intr <- lm(CVD~overweight * smokers * wellbeing * poverty, data=data_cvd_england)
+summary(m.cvd.by.factors.intr)
+cbind(coef(m.cvd.by.factors.intr), confint(m.cvd.by.factors.intr))
+```
+
+No interaction is significant, probably because its overfitting and indicates that there might be multicolinearity in the model. Next, we will try to simplify the model. 
+
+Based on the theory, poverty and overweight share a meaningful relationship, with the previous correlation analysis showing a weak positive association (r = 0.14) between these variables. This aligns with the poverty-obesity paradox, where low-income populations (higher poverty) often face higher obesity rates due to reliance on cheap, calorie-dense foods, limited time and resources for healthy lifestyles, and weight gain as a survival response to food insecurity (Millar, 2023). We will examine specifically on how poverty and overweight interact in predicting CVD prevalence.
+
+```{r}
+# Multiple Linear Regression with Interaction in Poverty and Overweight
+m.cvd.by.povover.smoke.well <- lm(CVD~poverty * overweight + smokers + wellbeing, data=data_cvd_england)
+summary(m.cvd.by.povover.smoke.well)
+cbind(coef(m.cvd.by.povover.smoke.well), confint(m.cvd.by.povover.smoke.well))
+```
+
+The results show that CVD are lower for higher poverty (b = -0.533, CI [-0.80, -0.26], t(297) = -3.909, p < 0.001), higher for both higher smoking rates (b = 0.11, CI [0.04, 0.18], t(297) = 3.302, p < 0.01) and higher wellbeing scores (b = 1.72, CI [0.76, 2.68], t(297) = 3.536, p < 0.001). While overweight status alone shows no significant effect (b = -0.18, CI [-0.40, 0.04], t(297) = -1.635, p > 0.05), there is a significant positive interaction between poverty and overweight (b = 0.015, CI [0.004, 0.025], t(297) = 2.648, p < 0.01), indicating that the relationship between overweight and CVD becomes more positive as poverty levels increase.
+
+The model explains 25% of the variance in CVD prevalence (shown by the adjusted R-squared), which is higher than what is explained by multiple factors without interaction terms.
+
+To ensure the reliability of these results, we next check for multicollinearity using VIF scores.
+
+```{r}
+vif(m.cvd.by.factors)
+vif(m.cvd.by.factors.intr)
+vif(m.cvd.by.povover.smoke.well)
+```
+
+We can see that this high multicollinearity is simply due to the structure of our regression model that includes interaction terms. When we checked the VIF scores for the main variables without interactions, all values were below the threshold (< 5), indicating no concerning multicollinearity among our primary predictors (overweight, smokers, wellbeing, and poverty).
+
+# ANOVA
+
+Next, we will compare two models parametrically using analysis of variance (ANOVA). 
+```{r}
+anova(m.cvd.by.factors, m.cvd.by.povover.smoke.well)
+```
+
+The addition of the poverty × overweight interaction term significantly improves the model fit (F = 7.0846, p = 0.0082). There is evidence that the relationship between poverty and CVD depends on whether someone is overweight (the p-value is below 0.01, so this interaction is statistically significant).
+
+# Analyses 
+
+In this section, we will analyse further the Model 2 and break down the factor that affecting CVD.
+
+1. Poverty and overweight
+
+Without interaction with overweight, the effect of poverty upon CVD shown at the graph below:
+
+```{r}
+ggplot(data_cvd_england, aes(y=CVD, x=poverty)) + geom_line() + geom_smooth() + labs(x="Proportion of individuals living in poverty (%)", y="Proportion of individuals with CVD (%)")
+```
+
+From about 15% to 20% poverty levels, there's a relatively stable CVD prevalence (shown by the blue smoothed line hovering around 12-13%). After 20% poverty, there's a noticeable downward trend. This graph suggests that higher poverty levels are associated with lower CVD prevalence, which might seem counterintuitive. This is why the analysis continues to examine how this relationship changes when considering the interaction with overweight status.
+
+Given the complex dynamics between poverty, overweight, and health outcomes, we further explored how poverty levels influence the relationship between overweight and CVD prevalence based on the model.
+
+```{r}
+# Coefficients from the model
+coef_overweight <- -0.1857
+coef_interaction <- 0.0146
+
+# Generate poverty levels
+poverty_levels <- seq(0, 20, 5)
+
+# Calculate effect of overweight on CVD
+effect_overweight <- coef_overweight + coef_interaction * poverty_levels
+
+# Plot the graph
+plot(poverty_levels, effect_overweight, type = "l", col = "blue",
+     xlab = "Poverty Level", ylab = "Effect of Overweight on CVD",
+     main = "Effect of Overweight on CVD vs Poverty Level")
+abline(h = 0, col = "gray", lty = 2) # Add zero line
+```
+
+This graph shows the strength of the relationship between poverty level and the effect of overweight on CVD changes. In low poverty areas, higher overweight rates are linked to lower CVD rates, likely because better healthcare helps manage health issues. However, this benefit disappears as poverty increases. In high-poverty areas, higher overweight rates lead to more CVD. This shows that how overweight affects health depends on an area's poverty level and most likely related to the access to healthcare.
+
+2. Smokers
+
+The results suggest that higher smoking prevalence is associated with higher CVD cases. The effect is both statistically significant and practically meaningful.
+
+3. Wellbeing
+
+The positive relationship between wellbeing and CVD rates (where higher wellbeing is linked to higher CVD) appears unexpected. This can be explained by how wellbeing is measured. According to the Office for National Statistics (2023), the wellbeing score includes many factors like happiness, healthcare satisfaction, and economic conditions. Areas with higher wellbeing often have better healthcare systems, which leads to better detection and recording of CVD cases. In contrast, areas with lower wellbeing might have fewer reported CVD cases simply because they have less access to healthcare, meaning many cases go undetected or unreported.
+
+# Conclusion
+
+The prevalence of CVD in England is influenced by several factors including overweight (and its interaction with poverty), smoking rates, and wellbeing scores. This analysis shows that higher poverty levels are associated with lower CVD prevalence. Given this unexpected pattern, we examined how poverty and overweight work together to affect CVD rates, suggesting the health impact of being overweight varies by poverty level.
+
+# References
+
+- Millar, H. (2023). Obesity and poverty: Link, statistics and more. [online] www.medicalnewstoday.com. Available at: https://www.medicalnewstoday.com/articles/obesity-and-poverty#low-income-families.
+
+- Office for National Statistics (2023). UK Measures of National Well-being Dashboard - Office for National Statistics. [online] www.ons.gov.uk. Available at: https://www.ons.gov.uk/peoplepopulationandcommunity/wellbeing/articles/ukmeasuresofnationalwellbeing/dashboard.
+
+- Office for National Statistics (ONS), released 16 December 2022, ONS website, statistical bulletin, Estimating the number of people with cardiovascular or respiratory conditions living in poverty, England: 2021
+
+
+
+---
